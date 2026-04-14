@@ -4,6 +4,10 @@ const PORT = 8080;
 
 const server = new MSTServer({
   port: PORT,
+  authResolver: (creds) => {
+    // Simple credential check — replace with DB lookup in production
+    return creds.apiKey === 'my-secret-api-key';
+  },
   manifest: {
     name: 'SampleServer',
     version: '1.0.0',
@@ -64,5 +68,6 @@ setInterval(() => {
 }, 2000);
 
 console.log(`✅ SampleServer running on ws://localhost:${PORT}`);
+console.log('   Auth required: apiKey = "my-secret-api-key"');
 console.log('   RPC methods: greet, add, echo');
 console.log('   Feeds: clock, random');

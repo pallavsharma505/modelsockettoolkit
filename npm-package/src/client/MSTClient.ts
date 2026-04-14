@@ -6,9 +6,11 @@ import {
   type FeedData,
   type MSTMessage,
   type ServerManifestMessage,
+  type AuthMessage,
   isRPCResponse,
   isFeedData,
   isServerManifest,
+  isAuthResult,
   isErrorMessage,
 } from '../shared/protocol';
 import type { ServerManifest } from '../shared/manifest';
@@ -22,15 +24,19 @@ export class MSTClient {
   private _manifest: ServerManifest | null = null;
   private manifestCallback: ((m: ServerManifest) => void) | null = null;
   private errorCallback: ((msg: string) => void) | null = null;
+  private disconnectCallback: ((error?: string) => void) | null = null;
   private reconnectAttempts = 0;
+  private _disableReconnect = false;
 
   private readonly url: string;
+  private readonly auth?: Record<string, string>;
   private readonly reconnect: boolean;
   private readonly reconnectInterval: number;
   private readonly maxReconnectAttempts: number;
 
   constructor(options: MSTClientOptions) {
     this.url = options.url;
+    this.auth = options.auth;
     this.reconnect = options.reconnect ?? true;
     this.reconnectInterval = options.reconnectInterval ?? 3_000;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
@@ -46,6 +52,10 @@ export class MSTClient {
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
+        if (this.auth) {
+          const authMsg: AuthMessage = { type: 'auth', credentials: this.auth };
+          this.ws!.send(JSON.stringify(authMsg));
+        }
         resolve();
       };
 
@@ -124,8 +134,12 @@ export class MSTClient {
     this.errorCallback = callback;
   }
 
+  onDisconnect(callback: (error?: string) => void): void {
+    this.disconnectCallback = callback;
+  }
+
   close(): void {
-    this.reconnect && Object.defineProperty(this, 'reconnect', { value: false });
+    this._disableReconnect = true;
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
       pending.reject(new Error('Client closed'));
@@ -176,6 +190,14 @@ export class MSTClient {
       return;
     }
 
+    if (isAuthResult(msg)) {
+      if (!msg.success) {
+        this._disableReconnect = true;
+        this.disconnectCallback?.(msg.error ?? 'Authentication failed');
+      }
+      return;
+    }
+
     if (isErrorMessage(msg)) {
       this.errorCallback?.(msg.message);
       return;
@@ -183,8 +205,10 @@ export class MSTClient {
   }
 
   private handleClose(): void {
+    this.disconnectCallback?.();
     if (
       this.reconnect &&
+      !this._disableReconnect &&
       this.reconnectAttempts < this.maxReconnectAttempts
     ) {
       this.reconnectAttempts++;

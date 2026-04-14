@@ -3,7 +3,11 @@ import { MSTClient } from '@pallavsharma505/modelsockettoolkit/client';
 const SERVER_URL = 'ws://localhost:8080';
 
 async function main() {
-  const client = new MSTClient({ url: SERVER_URL, reconnect: false });
+  const client = new MSTClient({
+    url: SERVER_URL,
+    reconnect: false,
+    auth: { apiKey: 'my-secret-api-key' },
+  });
 
   // ── Manifest ─────────────────────────────────────────────────────────────
 
@@ -22,6 +26,10 @@ async function main() {
 
   client.onError((msg) => {
     console.error(`❌ Server error: ${msg}`);
+  });
+
+  client.onDisconnect((error) => {
+    if (error) console.error(`🔌 Disconnected: ${error}`);
   });
 
   // ── Connect ──────────────────────────────────────────────────────────────

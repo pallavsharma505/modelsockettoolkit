@@ -10,6 +10,7 @@
 - **Promise-based RPC** — call server methods with `await`, no callback hell
 - **PubSub Feeds** — subscribe to server-side event streams (AI tokens, live data, progress bars)
 - **Server Manifest** — clients auto-receive a declarative description of available tools and feeds on connect
+- **Authentication** — optional `authResolver` on the server, credential-based auth on the client
 - **Connection Heartbeat** — automatic ping/pong to detect and purge dead connections
 - **TypeScript first** — full type definitions, ESM + CJS dual output
 
@@ -28,6 +29,10 @@ import { MSTServer } from '@pallavsharma505/modelsockettoolkit/server';
 
 const server = new MSTServer({
   port: 8080,
+  // Optional: require authentication
+  authResolver: (credentials) => {
+    return credentials.apiKey === 'my-secret-key';
+  },
   manifest: {
     name: 'My API',
     version: '1.0.0',
@@ -60,7 +65,11 @@ setInterval(() => {
 ```typescript
 import { MSTClient } from '@pallavsharma505/modelsockettoolkit/client';
 
-const client = new MSTClient({ url: 'ws://localhost:8080' });
+const client = new MSTClient({
+  url: 'ws://localhost:8080',
+  // Optional: send credentials if server requires auth
+  auth: { apiKey: 'my-secret-key' },
+});
 
 client.onManifest((manifest) => {
   console.log('Server:', manifest.name, manifest.version);
@@ -105,6 +114,8 @@ new MSTServer(options: MSTServerOptions)
 | `heartbeatInterval` | `number` | `30000` | Ping interval (ms) |
 | `heartbeatTimeout` | `number` | `5000` | Pong timeout (ms) |
 | `maxPayloadSize` | `number` | `1048576` | Max message size (bytes) |
+| `authResolver` | `(creds: Record<string, string>) => boolean \| Promise<boolean>` | — | Optional auth callback. If set, clients must authenticate before access. |
+| `authTimeout` | `number` | `10000` | Time (ms) to wait for auth before disconnecting. |
 
 **Methods:**
 
@@ -126,6 +137,7 @@ new MSTClient(options: MSTClientOptions)
 | `reconnect` | `boolean` | `true` | Auto-reconnect on disconnect |
 | `reconnectInterval` | `number` | `3000` | Delay between reconnect attempts (ms) |
 | `maxReconnectAttempts` | `number` | `10` | Max reconnect attempts |
+| `auth` | `Record<string, string>` | — | Credentials to send on connect (if server requires auth). |
 
 **Methods:**
 
@@ -136,6 +148,7 @@ new MSTClient(options: MSTClientOptions)
 | `subscribe(feed, callback)` | Subscribe to a feed. Returns an unsubscribe function. |
 | `onManifest(callback)` | Register a callback for when the server manifest is received. |
 | `onError(callback)` | Register a callback for server errors. |
+| `onDisconnect(callback)` | Register a callback for disconnection (receives error string on auth failure). |
 | `close()` | Disconnect from the server. |
 
 **Properties:**
@@ -167,6 +180,8 @@ All messages are JSON over WebSocket. Message types:
 | `feed_sub` | Client → Server | Subscribe to feed |
 | `feed_unsub` | Client → Server | Unsubscribe from feed |
 | `feed_data` | Server → Client | Feed data push |
+| `auth` | Client → Server | Authentication credentials |
+| `auth_result` | Server → Client | Authentication result (success/failure) |
 | `server_manifest` | Server → Client | Server manifest (sent on connect) |
 | `error` | Server → Client | Error message |
 

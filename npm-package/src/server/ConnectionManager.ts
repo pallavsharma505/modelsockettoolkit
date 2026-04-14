@@ -9,20 +9,27 @@ type DisconnectionHandler = (clientId: string) => void;
 export class ConnectionManager {
   private wss: WebSocketServer | null = null;
   private clients = new Map<string, ClientSocket>();
+  private pendingClients = new Map<string, ClientSocket>();
+  private authTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly heartbeatInterval: number;
   private readonly heartbeatTimeout: number;
   private readonly maxPayloadSize: number;
+  private readonly requiresAuth: boolean;
+  private readonly authTimeout: number;
 
   private onMessageHandler: MessageHandler | null = null;
   private onConnectHandler: ConnectionHandler | null = null;
   private onDisconnectHandler: DisconnectionHandler | null = null;
+  private onAuthMessageHandler: MessageHandler | null = null;
 
   constructor(options: MSTServerOptions) {
     this.heartbeatInterval = options.heartbeatInterval ?? 30_000;
     this.heartbeatTimeout = options.heartbeatTimeout ?? 5_000;
     this.maxPayloadSize = options.maxPayloadSize ?? 1_048_576;
+    this.requiresAuth = !!options.authResolver;
+    this.authTimeout = options.authTimeout ?? 10_000;
   }
 
   start(options: MSTServerOptions): void {
@@ -38,8 +45,17 @@ export class ConnectionManager {
         isAlive: true,
       };
 
-      this.clients.set(client.id, client);
-      this.onConnectHandler?.(client);
+      if (this.requiresAuth) {
+        this.pendingClients.set(client.id, client);
+
+        const timer = setTimeout(() => {
+          this.rejectClient(client.id, 'Authentication timeout');
+        }, this.authTimeout);
+        this.authTimers.set(client.id, timer);
+      } else {
+        this.clients.set(client.id, client);
+        this.onConnectHandler?.(client);
+      }
 
       ws.on('pong', () => {
         client.isAlive = true;
@@ -51,21 +67,57 @@ export class ConnectionManager {
           ws.close(1009, 'Message too large');
           return;
         }
-        this.onMessageHandler?.(client, data);
+
+        if (this.requiresAuth && this.pendingClients.has(client.id)) {
+          this.onAuthMessageHandler?.(client, data);
+        } else {
+          this.onMessageHandler?.(client, data);
+        }
       });
 
       ws.on('close', () => {
-        this.clients.delete(client.id);
-        this.onDisconnectHandler?.(client.id);
+        if (this.pendingClients.has(client.id)) {
+          this.cleanupPending(client.id);
+        } else {
+          this.clients.delete(client.id);
+          this.onDisconnectHandler?.(client.id);
+        }
       });
 
       ws.on('error', () => {
-        this.clients.delete(client.id);
-        this.onDisconnectHandler?.(client.id);
+        if (this.pendingClients.has(client.id)) {
+          this.cleanupPending(client.id);
+        } else {
+          this.clients.delete(client.id);
+          this.onDisconnectHandler?.(client.id);
+        }
       });
     });
 
     this.startHeartbeat();
+  }
+
+  authenticateClient(clientId: string): void {
+    const client = this.pendingClients.get(clientId);
+    if (!client) return;
+    this.cleanupPending(clientId);
+    this.clients.set(client.id, client);
+    this.onConnectHandler?.(client);
+  }
+
+  rejectClient(clientId: string, reason: string): void {
+    const client = this.pendingClients.get(clientId);
+    if (!client) return;
+    this.cleanupPending(clientId);
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.close(4401, reason);
+    }
+  }
+
+  sendToSocket(client: ClientSocket, data: string): void {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(data);
+    }
   }
 
   onMessage(handler: MessageHandler): void {
@@ -78,6 +130,10 @@ export class ConnectionManager {
 
   onDisconnect(handler: DisconnectionHandler): void {
     this.onDisconnectHandler = handler;
+  }
+
+  onAuthMessage(handler: MessageHandler): void {
+    this.onAuthMessageHandler = handler;
   }
 
   send(clientId: string, data: string): void {
@@ -113,6 +169,16 @@ export class ConnectionManager {
       }
       this.clients.clear();
 
+      for (const client of this.pendingClients.values()) {
+        client.ws.terminate();
+      }
+      this.pendingClients.clear();
+
+      for (const timer of this.authTimers.values()) {
+        clearTimeout(timer);
+      }
+      this.authTimers.clear();
+
       if (this.wss) {
         this.wss.close((err) => {
           if (err) reject(err);
@@ -138,5 +204,14 @@ export class ConnectionManager {
         client.ws.ping();
       }
     }, this.heartbeatInterval);
+  }
+
+  private cleanupPending(clientId: string): void {
+    this.pendingClients.delete(clientId);
+    const timer = this.authTimers.get(clientId);
+    if (timer) {
+      clearTimeout(timer);
+      this.authTimers.delete(clientId);
+    }
   }
 }

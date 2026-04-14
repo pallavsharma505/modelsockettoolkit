@@ -1,6 +1,6 @@
 {
   "name": "@pallavsharma505/modelsockettoolkit",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "description": "MST (Model Socket Toolkit) — lightweight bi-directional RPC & PubSub feeds over a single WebSocket",
   "author": "pallavsharma505",
   "license": "MIT",

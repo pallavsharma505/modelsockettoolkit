@@ -7,9 +7,15 @@ export interface ClientSocket {
   isAlive: boolean;
 }
 
+export type AuthResolver = (
+  credentials: Record<string, string>,
+) => boolean | Promise<boolean>;
+
 export interface MSTServerOptions {
   port: number;
   manifest: ServerManifest;
+  authResolver?: AuthResolver;
+  authTimeout?: number;
   heartbeatInterval?: number;
   heartbeatTimeout?: number;
   maxPayloadSize?: number;

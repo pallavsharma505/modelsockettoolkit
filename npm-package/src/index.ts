@@ -6,6 +6,8 @@ export {
   type FeedUnsubscribe,
   type FeedData,
   type ServerManifestMessage,
+  type AuthMessage,
+  type AuthResultMessage,
   type ErrorMessage,
   type MSTMessage,
   isRPCRequest,
@@ -14,6 +16,8 @@ export {
   isFeedUnsubscribe,
   isFeedData,
   isServerManifest,
+  isAuthMessage,
+  isAuthResult,
   isErrorMessage,
 } from './shared/protocol';
 

@@ -30,6 +30,10 @@ import { MSTServer } from '@pallavsharma505/modelsockettoolkit/server';
 
 const server = new MSTServer({
   port: 8080,
+  // Optional: require authentication
+  authResolver: (credentials) => {
+    return credentials.apiKey === 'my-secret-key';
+  },
   manifest: {
     name: 'My API',
     version: '1.0.0',
@@ -63,7 +67,11 @@ setInterval(() => {
 ```typescript
 import { MSTClient } from '@pallavsharma505/modelsockettoolkit/client';
 
-const client = new MSTClient({ url: 'ws://localhost:8080' });
+const client = new MSTClient({
+  url: 'ws://localhost:8080',
+  // Optional: send credentials if server requires auth
+  auth: { apiKey: 'my-secret-key' },
+});
 
 // The server manifest is automatically received on connect
 client.onManifest((manifest) => {

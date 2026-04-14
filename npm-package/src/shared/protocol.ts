@@ -11,6 +11,8 @@ export type MessageType =
   | 'feed_unsub'
   | 'feed_data'
   | 'server_manifest'
+  | 'auth'
+  | 'auth_result'
   | 'error';
 
 export interface RPCRequest {
@@ -48,6 +50,17 @@ export interface ServerManifestMessage {
   manifest: ServerManifest;
 }
 
+export interface AuthMessage {
+  type: 'auth';
+  credentials: Record<string, string>;
+}
+
+export interface AuthResultMessage {
+  type: 'auth_result';
+  success: boolean;
+  error?: string;
+}
+
 export interface ErrorMessage {
   type: 'error';
   message: string;
@@ -60,6 +73,8 @@ export type MSTMessage =
   | FeedUnsubscribe
   | FeedData
   | ServerManifestMessage
+  | AuthMessage
+  | AuthResultMessage
   | ErrorMessage;
 
 // ── Type Guards ──────────────────────────────────────────────────────────────
@@ -86,6 +101,14 @@ export function isFeedData(msg: MSTMessage): msg is FeedData {
 
 export function isServerManifest(msg: MSTMessage): msg is ServerManifestMessage {
   return msg.type === 'server_manifest';
+}
+
+export function isAuthMessage(msg: MSTMessage): msg is AuthMessage {
+  return msg.type === 'auth';
+}
+
+export function isAuthResult(msg: MSTMessage): msg is AuthResultMessage {
+  return msg.type === 'auth_result';
 }
 
 export function isErrorMessage(msg: MSTMessage): msg is ErrorMessage {

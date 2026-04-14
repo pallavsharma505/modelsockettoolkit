@@ -2,25 +2,29 @@ import {
   type MSTMessage,
   type ErrorMessage,
   type ServerManifestMessage,
+  type AuthResultMessage,
   isRPCRequest,
   isFeedSubscribe,
   isFeedUnsubscribe,
+  isAuthMessage,
 } from '../shared/protocol';
 import { ConnectionManager } from './ConnectionManager';
 import { RPCRouter } from './RPCRouter';
 import { FeedManager, FeedHandle } from './FeedManager';
-import type { MSTServerOptions, RPCHandler, ClientSocket } from './types';
+import type { MSTServerOptions, RPCHandler, ClientSocket, AuthResolver } from './types';
 
 export class MSTServer {
   private connections: ConnectionManager;
   private rpcRouter: RPCRouter;
   private feedManager: FeedManager;
   private readonly manifestPayload: string;
+  private readonly authResolver?: AuthResolver;
 
   constructor(options: MSTServerOptions) {
     this.connections = new ConnectionManager(options);
     this.rpcRouter = new RPCRouter();
     this.feedManager = new FeedManager(this.connections);
+    this.authResolver = options.authResolver;
 
     const manifestMsg: ServerManifestMessage = {
       type: 'server_manifest',
@@ -39,6 +43,12 @@ export class MSTServer {
     this.connections.onDisconnect((clientId) => {
       this.feedManager.removeClient(clientId);
     });
+
+    if (this.authResolver) {
+      this.connections.onAuthMessage((client, raw) => {
+        this.handleAuth(client, raw);
+      });
+    }
 
     this.connections.start(options);
   }
@@ -93,5 +103,44 @@ export class MSTServer {
   private sendError(clientId: string, message: string): void {
     const errorMsg: ErrorMessage = { type: 'error', message };
     this.connections.send(clientId, JSON.stringify(errorMsg));
+  }
+
+  private handleAuth(client: ClientSocket, raw: string): void {
+    let msg: MSTMessage;
+    try {
+      msg = JSON.parse(raw) as MSTMessage;
+    } catch {
+      this.sendAuthResult(client, false, 'Invalid JSON');
+      this.connections.rejectClient(client.id, 'Invalid JSON');
+      return;
+    }
+
+    if (!isAuthMessage(msg)) {
+      this.sendAuthResult(client, false, 'Authentication required');
+      this.connections.rejectClient(client.id, 'Authentication required');
+      return;
+    }
+
+    Promise.resolve()
+      .then(() => this.authResolver!(msg.credentials))
+      .then((result) => {
+        if (result) {
+          this.sendAuthResult(client, true);
+          this.connections.authenticateClient(client.id);
+        } else {
+          this.sendAuthResult(client, false, 'Authentication failed');
+          this.connections.rejectClient(client.id, 'Authentication failed');
+        }
+      })
+      .catch(() => {
+        this.sendAuthResult(client, false, 'Authentication error');
+        this.connections.rejectClient(client.id, 'Authentication error');
+      });
+  }
+
+  private sendAuthResult(client: ClientSocket, success: boolean, error?: string): void {
+    const msg: AuthResultMessage = { type: 'auth_result', success };
+    if (error) msg.error = error;
+    this.connections.sendToSocket(client, JSON.stringify(msg));
   }
 }
